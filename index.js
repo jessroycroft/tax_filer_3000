@@ -111,23 +111,23 @@ async function writeIssuesToFile(commits) {
 
 async function init() {
     try {
-        gitRepos.forEach(async repo => {
-            const gitlogOptions = {
-                repo: `${workspace}/${repo}`,
-                since: 'NOV 1 2017',
-                until: 'APR 6 2018',
-                number: '50000',
-                all: true,
-                execOptions:
-                {
-                    maxBuffer: 1000 * 1024
-                }
+        // gitRepos.forEach(async repo => {
+        const gitlogOptions = {
+            repo: `${workspace}/core`,
+            since: 'NOV 1 2017',
+            until: 'APR 6 2018',
+            number: '50000',
+            all: true,
+            execOptions:
+            {
+                maxBuffer: 1000 * 1024
+            }
 
-            };
-            const commits = await getCommits(gitlogOptions);
-            // writeCommitsToFile(commits, repo);
-            writeIssuesToFile(commits);
-        })
+        };
+        const commits = await getCommits(gitlogOptions);
+        // writeCommitsToFile(commits, repo);
+        writeIssuesToFile(commits);
+        // })
     } catch (err) {
         console.log(err);
     }
