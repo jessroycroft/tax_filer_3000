@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/index.js",
             "args": [
                 "--username",
-                "jess.roycroft@ubelip.com",
+                "jess.roycroft@uberflip.com",
                 "--password",
                 "GarbageCatBen"
             ]

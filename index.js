@@ -66,27 +66,42 @@ const jira = new JiraApi(
 );
 
 function promiseJira(issueNumber) {
-    return new Promise((resolve, reject) => {
+    const result = new Promise((resolve, reject) => {
         jira.findIssue(issueNumber, (err, issue) => {
             if (err) {
-                console.log(`error ${issueNumber}`);
-                reject(err);
+                if (err === 'Invalid issue number.') {
+                    // If the issue doesn't exist anymore, thats still okay.
+                    console.log('Issue id is invalid, continuing...', `Issue Number: ${issueNumber}`)
+                    resolve(false);
+                } else {
+                    console.log(`error ${issueNumber}`);
+                    reject(err);
+                }
             }
             return resolve(issue);
         })
     })
+    return result;
 }
 
-async function logIssueName(issueList) {
-    const issueNames = await Promise.all(issueList.map(issue => promiseJira(issue)));
-    return issueNames.map(issue => issue.id);
+async function getJiraData(issueList) {
+    const proms = issueList.map(issue => promiseJira(issue));
+    try {
+        const issueNames = await Promise.all(proms);
+        return issueNames
+            .filter(obj => obj) // Filter out the "false" values which come from now deleted Jira tickets
+            .map(issue => issue.id);
+    } catch (err) {
+        console.log('here!', err)
+    }
 };
 
 async function getCommits(options) {
     return await gitlog(options);
 }
 
-function onlyUnique(value, index, self) {
+function getUniqueValues(value, index, self) {
+    if (!value) return false;
     return self.indexOf(value) === index;
 }
 
@@ -94,7 +109,7 @@ function writeCommitsToFile(commits, repo) {
     fs.writeFile(`./downloaded_data/commits/commits_${repo}.json`, JSON.stringify(commits, null, 2));
 }
 
-async function writeIssuesToFile(commits) {
+async function getJiraIssueNumbers(commits) {
     const commitMessageRegex = /([A-Z]{3}[-][1-9]{5})/;
     const listOfIssues = commits
         .map(commit => {
@@ -104,30 +119,32 @@ async function writeIssuesToFile(commits) {
                 return result[0];
             }
         })
-        .filter(onlyUnique);
-    const infoToWrite = await logIssueName(listOfIssues);
+        .filter(getUniqueValues);
+    const infoToWrite = await getJiraData(listOfIssues);
+    console.log(infoToWrite);
     fs.writeFile('info.json', JSON.stringify(infoToWrite, null, 2))
 } 
 
 async function init() {
     try {
         // gitRepos.forEach(async repo => {
-        const gitlogOptions = {
-            repo: `${workspace}/core`,
-            since: 'NOV 1 2017',
-            until: 'APR 6 2018',
-            number: '50000',
-            all: true,
-            execOptions:
-            {
-                maxBuffer: 1000 * 1024
-            }
+            const gitlogOptions = {
+                repo: `${workspace}/core`,
+                since: 'NOV 1 2017',
+                until: 'APR 6 2018',
+                number: '50000',
+                all: true,
+                execOptions:
+                {
+                    maxBuffer: 1000 * 1024
+                }
 
-        };
-        const commits = await getCommits(gitlogOptions);
-        // writeCommitsToFile(commits, repo);
-        writeIssuesToFile(commits);
+            };
+            const commits = await getCommits(gitlogOptions);
+            getJiraIssueNumbers(commits);
+            // writeCommitsToFile(commits, repo);
         // })
+        
     } catch (err) {
         console.log(err);
     }
