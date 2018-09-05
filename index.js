@@ -1,6 +1,8 @@
 const promisify = require('promisify-node');
 
 const { JiraApi } = require('jira');
+const searchJira = require('./searchJira')
+const getVersionIds = require('./getVersions');
 const gitlog = promisify('gitlog');
 const path = require('path');
 const commandLineArgs = require('command-line-args');
@@ -46,35 +48,6 @@ if (!options.password) {
     throw new Error('Missing password argument.');
 }
 
-const jira = new JiraApi(
-    'https',
-    'uberflip.atlassian.net',
-    443,
-    options.username,
-    options.password,
-    '2'
-);
-
-function promiseJiraFindIssue(issueNumber) {
-    const result = new Promise((resolve, reject) => {
-        jira.findIssue(issueNumber, (err, issue) => {
-            if (err) {
-                if (err === 'Invalid issue number.') {
-                    // If the issue doesn't exist anymore, thats still okay.
-                    console.log('Issue id is invalid, continuing...', `Issue Number: ${issueNumber}`)
-                    resolve(false);
-                } else {
-                    console.log(`error ${issueNumber}`);
-                    console.log('The error: ', err);
-                    reject(err);
-                }
-            }
-            return resolve(issue);
-        })
-    })
-    return result;
-}
-
 function promiseJiraGetVersions(projectId) {
     const result = new Promise((resolve, reject) => {
         jira.getVersions(projectId, (err, version) => {
@@ -97,39 +70,16 @@ function promiseJiraGetVersions(projectId) {
     return result;
 }
 
-async function getIssueData(issueList) {
-    const proms = issueList.map(issue => promiseJiraFindIssue(issue));
-    try {
-        const issueNames = await Promise.all(proms);
-        return issueNames
-            .filter(obj => obj) // Filter out the "false" values which come from now deleted Jira tickets
-            .map(issue => issue);
-    } catch (err) {
-        console.log('here!', err)
-    }
-};
-
 async function writeVersionsToFile(projectId) {
     const data = await getVersionData(projectId);
     // fs.writeFile(`./downloaded_data/jira_data/versions_${repo}.json`, JSON.stringify(commits, null, 2));
 }
 
-async function getVersionData(projectId) {
-    const proms = promiseJiraGetVersions(projectId);
-    try {
-        const versionData = await Promise.all(proms);
-        return versionData
-            .filter(obj => obj) // Filter out the "false" values which come from now deleted Jira tickets
-            .filter(version => (version.startDate > '2017-11-01' && version.startDate < '2018-04-06') || (version.releaseDate > '2017-11-01' && version.releaseDate < '2018-04-06'))
-            .map(version => version);
-    } catch (err) {
-        console.log('here!', err);
-    }
+function sortVersionDates(versions) {
+    return versions
+        .filter(version => (version.startDate > '2017-11-01' && version.startDate < '2018-04-06') || (version.releaseDate > '2017-11-01' && version.releaseDate < '2018-04-06'))
+        .map(version => version);
 };
-
-async function getCommits(options) {
-    return await gitlog(options);
-}
 
 function getUniqueValues(value, index, self) {
     if (!value) return false;
@@ -139,46 +89,6 @@ function getUniqueValues(value, index, self) {
 function writeCommitsToFile(commits, repo) {
     // uncomment to write to file
     // fs.writeFile(`./downloaded_data/commits/commits_${repo}.json`, JSON.stringify(commits, null, 2));
-}
-
-function writeIssuesInVersionsToFile(projectId) {
-
-}
-
-async function getIssuesInVersion(projectId) {
-    const versionData = await getVersionData(projectId);
-    const issueData = await getIssueData(issueList);
-    const versionObj = {};
-    versionData.forEach((version, index) => {
-        const id = version.id;
-        versionObj[index] = {
-            id: [],
-        };
-        versionObj[index][id] = issueData.filter(issue => {
-            return issue.fields.versions.indexOf(id) > 0;
-        })
-    })
-}
-
-// async function getJiraVersions(listOfIssues) {
-
-//     const versionsBetweenDates = data.filter(issue => {
-//         const startDate = issue.startDate;
-//         const releaseDate = issue.releaseDate;
-//         return (startDate > '2017-11-01' && startDate < '2018-04-06') || (releaseDate > '2017-11-01' && releaseDate < '2018-04-06');
-//     })
-//     getIssuesInVersion(versionsBetweenDates);
-// }
-
-
-async function getChangedJiraIssues(listOfIssues) {
-    const jiraData = await getIssueData(listOfIssues);
-    // issue.fields.created or issue.fields.updated is greater than 2017-11-01 or less than 2018-04-06
-    const updatedIssues = jiraData.filter(issue => {
-        return (issue.fields.created > '2017-11-01' && issue.fields.created < '2018-04-06')
-            || (issue.fields.updated > '2017-11-01' && issue.fields.updated < '2018-04-06')
-    })
-    // fs.writeFile(`./downloaded_data/jira_data/changed_issues_${repo}.json`, JSON.stringify(commits, null, 2));
 }
 
 async function writeIssueDataToFile(listOfIssues) {
@@ -198,7 +108,7 @@ async function writeIssueDataToFile(listOfIssues) {
     // fs.writeFile('./downloaded_data/jira_data/info.json', JSON.stringify(jiraObj, null, 2));
 }
 
-async function getJiraIssueNumbers(commits) {
+function getJiraIssueNumbers(commits) {
     const commitMessageRegex = /([A-Z]{3}[-][1-9]*)/; // regex to match the ABC-12345 format
     const listOfIssues = commits
         .map(commit => {
@@ -210,8 +120,23 @@ async function getJiraIssueNumbers(commits) {
             }
         })
         .filter(getUniqueValues); // filter out commits from the same branch
-    writeIssueDataToFile(listOfIssues);
-    getChangedJiraIssues(listOfIssues);
+    return listOfIssues;
+}
+
+const jira = new JiraApi(
+  'https',
+  'uberflip.atlassian.net',
+  443,
+  'jess.roycroft@uberflip.com',
+  'GarbageCatBen',
+  'latest'
+);
+
+function wasUpdated(issue) {
+  return (
+    (issue.createdDate > '2017-11-01' && issue.createdDate < '2018-04-06') ||
+    (issue.updated > '2017-11-01' && issue.updated < '2018-04-06')
+  );
 }
 
 async function init() {
@@ -229,12 +154,19 @@ async function init() {
             }
 
         };
-        const commits = await getCommits(gitlogOptions);
-        getJiraIssueNumbers(commits);
+        const commits = getJiraIssueNumbers(await gitlog(gitlogOptions)); // get DEV-XXXXX format from commit message
+        const issuesInCommits = await searchJira(`key in ("${commits.join('", "')}")`); //query jira for issues
+
+        const updatedIssues = issuesInCommits.filter(issue => wasUpdated(issue)); // get updated versions between 2 dates
+        
+        const versions = sortVersionDates(await promiseJiraGetVersions('DEV')); // get all version between 2 dates
+        const issuesInVersion = await Promise.all(versions.map(async version => await searchJira(`fixVersion in ("${version.id}") AND resolution NOT IN ("LegacyBug")`))); // get all issues in versions between two dates not closed as LegacyBug
+
         // writeCommitsToFile(commits, repo);
-        // writeVersionsToFile('DEV');
-        // writeIssuesInVersionsToFile('DEV');
-        // })
+        // writeIssuesInCommitsToFile(issuesinCommits, repo);
+        // writeUpdatedIssuesToFile(updatedIssues, repo);
+        // writeVersionsToFile(versions, repo);
+        // writeIssuesInVersionToFile(issuesInVersion, repo);
 
     } catch (err) {
         console.log(err);
@@ -242,6 +174,3 @@ async function init() {
 };
 
 init();
-
-
-
