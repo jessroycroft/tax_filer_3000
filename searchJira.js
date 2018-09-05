@@ -20,7 +20,6 @@ function mapIssue(issue) {
         createdDate: issue.fields.created,
         updated: issue.fields.updated,
         labels: issue.fields.labels,
-        changelog: issue.changelog,
         resolution: issue.fields.resolution
     };
 }
@@ -36,7 +35,6 @@ module.exports = async function getIssues(query, requestedStartAt = 0) {
                 'created',
                 'updated',
                 'labels',
-                'changelog',
                 'resolution'
             ],
             startAt: requestedStartAt,

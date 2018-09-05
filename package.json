@@ -15,6 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "asyncawait": "^1.0.7",
+    "bottleneck": "^2.8.0",
     "command-line-args": "^5.0.2",
     "es6-promisify": "^6.0.0",
     "fs": "0.0.1-security",
@@ -22,6 +23,7 @@
     "gitlog": "^3.1.2",
     "jira": "^0.9.2",
     "jira-client": "^6.4.1",
+    "node-mkdirp": "0.0.1",
     "nodegit": "^0.22.2",
     "oibackoff": "^1.0.1",
     "path": "^0.12.7",

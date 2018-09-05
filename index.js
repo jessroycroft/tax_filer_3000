@@ -2,10 +2,11 @@ const promisify = require('promisify-node');
 
 const { JiraApi } = require('jira');
 const searchJira = require('./searchJira')
-const getVersionIds = require('./getVersions');
 const gitlog = promisify('gitlog');
+const Bottleneck = require('bottleneck');
 const path = require('path');
 const commandLineArgs = require('command-line-args');
+const mkdirp = require('mkdirp');
 const fs = require('fs');
 
 const workspace = path.resolve('../../../workspace');
@@ -33,6 +34,10 @@ const gitRepos = [
     'webhooks',
     'widget'
 ];
+
+const limiter = new Bottleneck({
+    minTime: 200
+})
 
 // Options for Jira API
 const optionDefinitions = [
@@ -70,11 +75,6 @@ function promiseJiraGetVersions(projectId) {
     return result;
 }
 
-async function writeVersionsToFile(projectId) {
-    const data = await getVersionData(projectId);
-    // fs.writeFile(`./downloaded_data/jira_data/versions_${repo}.json`, JSON.stringify(commits, null, 2));
-}
-
 function sortVersionDates(versions) {
     return versions
         .filter(version => (version.startDate > '2017-11-01' && version.startDate < '2018-04-06') || (version.releaseDate > '2017-11-01' && version.releaseDate < '2018-04-06'))
@@ -86,30 +86,8 @@ function getUniqueValues(value, index, self) {
     return self.indexOf(value) === index;
 }
 
-function writeCommitsToFile(commits, repo) {
-    // uncomment to write to file
-    // fs.writeFile(`./downloaded_data/commits/commits_${repo}.json`, JSON.stringify(commits, null, 2));
-}
-
-async function writeIssueDataToFile(listOfIssues) {
-    const jiraData = await getIssueData(listOfIssues);
-    const jiraObj = {};
-    jiraData.forEach((issue, index) => {
-        jiraObj[index] = {
-            'key': issue.key,
-            'url': issue.self,
-            'id': issue.id,
-            'summary': issue.fields.summary,
-            'status': issue.fields.status,
-            'resolution': issue.fields.resolution
-        }
-    })
-    // uncomment to write to file
-    // fs.writeFile('./downloaded_data/jira_data/info.json', JSON.stringify(jiraObj, null, 2));
-}
-
-function getJiraIssueNumbers(commits) {
-    const commitMessageRegex = /([A-Z]{3}[-][1-9]*)/; // regex to match the ABC-12345 format
+function getJiraIssueNumbersFromCommits(commits) {
+    const commitMessageRegex = /((DEV)[-][1-9]{5})/; // regex to match the ABC-12345 format
     const listOfIssues = commits
         .map(commit => {
             let issueNumber = commit.subject;
@@ -132,42 +110,48 @@ const jira = new JiraApi(
   'latest'
 );
 
-function wasUpdated(issue) {
-  return (
-    (issue.createdDate > '2017-11-01' && issue.createdDate < '2018-04-06') ||
-    (issue.updated > '2017-11-01' && issue.updated < '2018-04-06')
-  );
-}
-
 async function init() {
     try {
-        // gitRepos.forEach(async repo => {
-        const gitlogOptions = {
-            repo: `${workspace}/core`,
-            since: 'NOV 1 2017',
-            until: 'APR 6 2018',
-            number: '50000',
-            all: true,
-            execOptions:
-            {
-                maxBuffer: 1000 * 1024
-            }
+        mkdirp('./downloaded_data/commits', err => { err ? console.log(err) : 'directory created!' });
+        mkdirp('./downloaded_data/jira', err => { err ? console.log(err) : 'directory created!' });
+        mkdirp(`./downloaded_data/jira/issues_from_commits`, err => { err ? console.log(err) : 'directory created!' });
 
-        };
-        const commits = getJiraIssueNumbers(await gitlog(gitlogOptions)); // get DEV-XXXXX format from commit message
-        const issuesInCommits = await searchJira(`key in ("${commits.join('", "')}")`); //query jira for issues
+        const updatedIssues = await limiter.schedule(searchJira, `project = DEV and ((created >= 2017-11-01 and created < 2018-04-06) or (updated >= 2017-11-01 and created < 2018-04-06) or status changed DURING (2017-11-01, 2018-04-01)) and (resolution is empty or resolution != LegacyBug)`); //query jira for issues
 
-        const updatedIssues = issuesInCommits.filter(issue => wasUpdated(issue)); // get updated versions between 2 dates
-        
-        const versions = sortVersionDates(await promiseJiraGetVersions('DEV')); // get all version between 2 dates
-        const issuesInVersion = await Promise.all(versions.map(async version => await searchJira(`fixVersion in ("${version.id}") AND resolution NOT IN ("LegacyBug")`))); // get all issues in versions between two dates not closed as LegacyBug
+        const versions = sortVersionDates(await limiter.schedule(promiseJiraGetVersions, 'DEV')); // get all version between 2 dates
+        const issuesInVersion = await Promise.all(versions.map(async version => await limiter.schedule(searchJira, `fixVersion in ("${version.id}")`))); // get all issues in versions between two dates not closed as LegacyBug
 
-        // writeCommitsToFile(commits, repo);
-        // writeIssuesInCommitsToFile(issuesinCommits, repo);
-        // writeUpdatedIssuesToFile(updatedIssues, repo);
-        // writeVersionsToFile(versions, repo);
-        // writeIssuesInVersionToFile(issuesInVersion, repo);
+        mkdirp(`./downloaded_data/jira/versions`, err => { err ? console.log(err) : 'directory created!' });
+        mkdirp(`./downloaded_data/jira/issues_in_versions`, err => { err ? console.log(err) : 'directory created!' });
+        mkdirp(`./downloaded_data/jira/updated_issues`, err => { err ? console.log(err) : 'directory created!' });
 
+        fs.writeFile(`./downloaded_data/jira/versions/versions.json`, JSON.stringify(versions, null, 2));
+        fs.writeFile(`./downloaded_data/jira/issues_in_versions/issues_in_versions.json`, JSON.stringify(issuesInVersion, null, 2));
+        fs.writeFile(`./downloaded_data/jira/updated_issues/updated_issues.json`, JSON.stringify(updatedIssues, null, 2));
+
+        for (const repo of gitRepos) {
+            const gitlogOptions = {
+                repo: `${workspace}/${repo}`,
+                since: 'NOV 1 2017',
+                until: 'APR 6 2018',
+                number: '50000',
+                all: true,
+                execOptions:
+                {
+                    maxBuffer: 1000 * 1024
+                }
+            };
+
+            const commits = getJiraIssueNumbersFromCommits(await gitlog(gitlogOptions)); // get DEV-XXXXX format from commit message
+            console.log(commits);
+            const issuesInCommits = await limiter.schedule( searchJira, `key in ("${commits.join('", "')}")` ); //query jira for issues            
+
+            mkdirp(`./downloaded_data/commits/${repo}`, err => { console.log(err) });
+            mkdirp(`./downloaded_data/jira/issues_from_commits/${repo}`, err => { err ? console.log(err) : 'directory created!' });
+
+            fs.writeFile(`./downloaded_data/commits/${repo}/commits.json`, JSON.stringify(commits, null, 2));
+            fs.writeFile(`./downloaded_data/jira/issues_from_commits/${repo}/issues_from_commits.json`, JSON.stringify(issuesInCommits, null, 2));
+        }
     } catch (err) {
         console.log(err);
     }
