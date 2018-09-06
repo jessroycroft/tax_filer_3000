@@ -119,6 +119,15 @@ function getJiraIssueNumbersFromCommits(commits) {
     return listOfIssues;
 }
 
+async function createIssuesInVersionObject(versions) {
+    const obj = {};
+    for (const version of versions) {
+        const issuesInVersion = await limiter.schedule(searchJira, `fixVersion in ("${version.id}")`);
+        obj[`V${version.id}`] = issuesInVersion;
+    }
+    return obj;
+}
+
 async function init() {
     try {
         mkdirp('./downloaded_data/commits', err => { console.log(err) });
@@ -128,7 +137,7 @@ async function init() {
         const updatedIssues = await limiter.schedule(searchJira, `project = DEV and ((created >= ${options.startDate} and created < ${options.endDate}) or (updated >= ${options.startDate} and created < ${options.endDate}) or status changed DURING (${options.startDate}, ${options.endDate})) and (resolution is empty or resolution != LegacyBug)`); //query jira for issues
 
         const versions = sortVersionDates(await limiter.schedule(promiseJiraGetVersions, 'DEV')); // get all version between 2 dates
-        const issuesInVersion = await Promise.all(versions.map(async version => await limiter.schedule(searchJira, `fixVersion in ("${version.id}")`))); // get all issues in versions between two dates not closed as LegacyBug
+        const issuesInVersion = await createIssuesInVersionObject(versions);  // get all issues in versions between two dates not closed as LegacyBug
 
         mkdirp(`./downloaded_data/jira/versions`, err => { console.log(err) });
         mkdirp(`./downloaded_data/jira/issues_in_versions`, err => { console.log(err) });
