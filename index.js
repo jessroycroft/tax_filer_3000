@@ -62,6 +62,15 @@ if (!options.endDate) {
     throw new Error('Missing end date argument.');
 }
 
+const jira = new JiraApi(
+    'https',
+    'uberflip.atlassian.net',
+    443,
+    options.username,
+    options.password,
+    'latest'
+);
+
 function promiseJiraGetVersions(projectId) {
     const result = new Promise((resolve, reject) => {
         jira.getVersions(projectId, (err, version) => {
@@ -109,15 +118,6 @@ function getJiraIssueNumbersFromCommits(commits) {
         .filter(getUniqueValues); // filter out commits from the same branch
     return listOfIssues;
 }
-
-const jira = new JiraApi(
-  'https',
-  'uberflip.atlassian.net',
-  443,
-  options.username,
-  options.password,
-  'latest'
-);
 
 async function init() {
     try {
