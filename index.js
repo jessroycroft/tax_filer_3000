@@ -43,6 +43,8 @@ const limiter = new Bottleneck({
 const optionDefinitions = [
     { name: 'username', alias: 'u', type: String },
     { name: 'password', alias: 'p', type: String },
+    { name: 'startDate', alias: 's', type: String },
+    { name: 'endDate', alias: 'e', type: String },
 ];
 const options = commandLineArgs(optionDefinitions);
 
@@ -51,6 +53,13 @@ if (!options.username) {
 }
 if (!options.password) {
     throw new Error('Missing password argument.');
+}
+
+if (!options.startDate) {
+    throw new Error('Missing start date argument.');
+}
+if (!options.endDate) {
+    throw new Error('Missing end date argument.');
 }
 
 function promiseJiraGetVersions(projectId) {
@@ -77,7 +86,7 @@ function promiseJiraGetVersions(projectId) {
 
 function sortVersionDates(versions) {
     return versions
-        .filter(version => (version.startDate > '2017-11-01' && version.startDate < '2018-04-06') || (version.releaseDate > '2017-11-01' && version.releaseDate < '2018-04-06'))
+        .filter(version => (version.startDate > options.startDate && version.startDate < options.endDate) || (version.releaseDate > options.startDate && version.releaseDate < options.endDate))
         .map(version => version);
 };
 
@@ -105,25 +114,25 @@ const jira = new JiraApi(
   'https',
   'uberflip.atlassian.net',
   443,
-  'jess.roycroft@uberflip.com',
-  'GarbageCatBen',
+  options.username,
+  options.password,
   'latest'
 );
 
 async function init() {
     try {
-        mkdirp('./downloaded_data/commits', err => { err ? console.log(err) : 'directory created!' });
-        mkdirp('./downloaded_data/jira', err => { err ? console.log(err) : 'directory created!' });
-        mkdirp(`./downloaded_data/jira/issues_from_commits`, err => { err ? console.log(err) : 'directory created!' });
+        mkdirp('./downloaded_data/commits', err => { console.log(err) });
+        mkdirp('./downloaded_data/jira', err => { console.log(err) });
+        mkdirp(`./downloaded_data/jira/issues_from_commits`, err => { console.log(err) });
 
-        const updatedIssues = await limiter.schedule(searchJira, `project = DEV and ((created >= 2017-11-01 and created < 2018-04-06) or (updated >= 2017-11-01 and created < 2018-04-06) or status changed DURING (2017-11-01, 2018-04-01)) and (resolution is empty or resolution != LegacyBug)`); //query jira for issues
+        const updatedIssues = await limiter.schedule(searchJira, `project = DEV and ((created >= ${options.startDate} and created < ${options.endDate}) or (updated >= ${options.startDate} and created < ${options.endDate}) or status changed DURING (${options.startDate}, ${options.endDate})) and (resolution is empty or resolution != LegacyBug)`); //query jira for issues
 
         const versions = sortVersionDates(await limiter.schedule(promiseJiraGetVersions, 'DEV')); // get all version between 2 dates
         const issuesInVersion = await Promise.all(versions.map(async version => await limiter.schedule(searchJira, `fixVersion in ("${version.id}")`))); // get all issues in versions between two dates not closed as LegacyBug
 
-        mkdirp(`./downloaded_data/jira/versions`, err => { err ? console.log(err) : 'directory created!' });
-        mkdirp(`./downloaded_data/jira/issues_in_versions`, err => { err ? console.log(err) : 'directory created!' });
-        mkdirp(`./downloaded_data/jira/updated_issues`, err => { err ? console.log(err) : 'directory created!' });
+        mkdirp(`./downloaded_data/jira/versions`, err => { console.log(err) });
+        mkdirp(`./downloaded_data/jira/issues_in_versions`, err => { console.log(err) });
+        mkdirp(`./downloaded_data/jira/updated_issues`, err => { console.log(err) });
 
         fs.writeFile(`./downloaded_data/jira/versions/versions.json`, JSON.stringify(versions, null, 2));
         fs.writeFile(`./downloaded_data/jira/issues_in_versions/issues_in_versions.json`, JSON.stringify(issuesInVersion, null, 2));
@@ -132,22 +141,31 @@ async function init() {
         for (const repo of gitRepos) {
             const gitlogOptions = {
                 repo: `${workspace}/${repo}`,
-                since: 'NOV 1 2017',
-                until: 'APR 6 2018',
+                since: options.startDate,
+                until: options.endDate,
                 number: '50000',
                 all: true,
+                fields: [
+                    'subject',
+                    'hash',
+                    'authorDate',
+                    'authorName',
+                    'authorEmail',
+                ],
                 execOptions:
                 {
                     maxBuffer: 1000 * 1024
                 }
             };
 
-            const commits = getJiraIssueNumbersFromCommits(await gitlog(gitlogOptions)); // get DEV-XXXXX format from commit message
-            console.log(commits);
-            const issuesInCommits = await limiter.schedule( searchJira, `key in ("${commits.join('", "')}")` ); //query jira for issues            
+            const commits = await limiter.schedule(gitlog, gitlogOptions); // get full commit list
+
+            const commitsList = getJiraIssueNumbersFromCommits(commits); // get DEV-XXXXX format from commit message
+
+            const issuesInCommits = await limiter.schedule( searchJira, `key in ("${commitsList.join('", "')}")` ); //query jira for issues            
 
             mkdirp(`./downloaded_data/commits/${repo}`, err => { console.log(err) });
-            mkdirp(`./downloaded_data/jira/issues_from_commits/${repo}`, err => { err ? console.log(err) : 'directory created!' });
+            mkdirp(`./downloaded_data/jira/issues_from_commits/${repo}`, err => { console.log(err); });
 
             fs.writeFile(`./downloaded_data/commits/${repo}/commits.json`, JSON.stringify(commits, null, 2));
             fs.writeFile(`./downloaded_data/jira/issues_from_commits/${repo}/issues_from_commits.json`, JSON.stringify(issuesInCommits, null, 2));
@@ -158,3 +176,6 @@ async function init() {
 };
 
 init();
+
+// Note: The way jiraSearch currently works is that it if any one of the issue numbers is not correct, the whole search will fail. There is a feature request per https://jira.atlassian.com/browse/JRASERVER-23287
+// Need to find a way around this 😓

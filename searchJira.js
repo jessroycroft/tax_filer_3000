@@ -1,12 +1,36 @@
 const { promisify } = require('es6-promisify');
 const { JiraApi } = require('jira');
+const commandLineArgs = require('command-line-args');
+
+// Options for Jira API
+const optionDefinitions = [
+    { name: 'username', alias: 'u', type: String },
+    { name: 'password', alias: 'p', type: String },
+    { name: 'startDate', alias: 's', type: String },
+    { name: 'endDate', alias: 'e', type: String },
+];
+const options = commandLineArgs(optionDefinitions);
+
+if (!options.username) {
+    throw new Error('Missing username argument.');
+}
+if (!options.password) {
+    throw new Error('Missing password argument.');
+}
+
+if (!options.startDate) {
+    throw new Error('Missing start date argument.');
+}
+if (!options.endDate) {
+    throw new Error('Missing end date argument.');
+}
 
 const jira = new JiraApi(
     'https',
     'uberflip.atlassian.net',
     443,
-    'jess.roycroft@uberflip.com',
-    'GarbageCatBen',
+    options.username,
+    options.password,
     'latest'
 );
 
@@ -58,7 +82,6 @@ module.exports = async function getIssues(query, requestedStartAt = 0) {
         return [...currentMappedIssues, ...additionalMappedIssues];
     } catch (err) {
         console.log(err);
-
         // uh oh
         throw new Error(err);
     }

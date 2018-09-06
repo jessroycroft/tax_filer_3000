@@ -13,7 +13,11 @@
                 "--username",
                 "jess.roycroft@uberflip.com",
                 "--password",
-                "GarbageCatBen"
+                "GarbageCatBen",
+                "--startDate",
+                "2017-11-01",
+                "--endDate",
+                "2018-05-01"
             ]
         }
     ]
