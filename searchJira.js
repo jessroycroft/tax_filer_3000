@@ -8,6 +8,7 @@ const optionDefinitions = [
     { name: 'password', alias: 'p', type: String },
     { name: 'startDate', alias: 's', type: String },
     { name: 'endDate', alias: 'e', type: String },
+    { name: 'directory', alias: 'd', type: String },
 ];
 const options = commandLineArgs(optionDefinitions);
 

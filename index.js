@@ -9,42 +9,13 @@ const commandLineArgs = require('command-line-args');
 const mkdirp = require('mkdirp');
 const fs = require('fs');
 
-const workspace = path.resolve('../../../workspace');
-
-const gitRepos = [
-    'acceptancetesting',
-    'admin',
-    'ansible',
-    'api2',
-    'core',
-    'deploy-bootstrapper',
-    'deploy-config',
-    'devlocal',
-    'fe',
-    'flipbook-services',
-    'platform-docs',
-    'reco-engine',
-    'recommendation-api',
-    'shout-extension',
-    'shout-v2',
-    'shout-v2-host',
-    'shout-v2-host-outlook',
-    'sso',
-    'uploads',
-    'webhooks',
-    'widget'
-];
-
-const limiter = new Bottleneck({
-    minTime: 200
-})
-
 // Options for Jira API
 const optionDefinitions = [
     { name: 'username', alias: 'u', type: String },
     { name: 'password', alias: 'p', type: String },
     { name: 'startDate', alias: 's', type: String },
     { name: 'endDate', alias: 'e', type: String },
+    { name: 'directory', alias: 'd', type: String },
 ];
 const options = commandLineArgs(optionDefinitions);
 
@@ -58,9 +29,23 @@ if (!options.password) {
 if (!options.startDate) {
     throw new Error('Missing start date argument.');
 }
+
 if (!options.endDate) {
     throw new Error('Missing end date argument.');
 }
+
+if (!options.directory) {
+    throw new Error('Missing directory argument.');
+}
+
+const workspace = path.resolve(options.directory);
+
+// Get the repos from the provided directory. Filter out any hidden files.
+const gitRepos = fs.readdirSync(workspace).map(file => file).filter(file => file.charAt(0) !== '.');
+
+const limiter = new Bottleneck({
+    minTime: 200
+})
 
 const jira = new JiraApi(
     'https',
@@ -186,5 +171,5 @@ async function init() {
 
 init();
 
-// Note: The way jiraSearch currently works is that it if any one of the issue numbers is not correct, the whole search will fail. There is a feature request per https://jira.atlassian.com/browse/JRASERVER-23287
+// Note: The way jiraSearch currently works is that if any one of the issue numbers is not correct, the whole search will fail. There is a feature request per https://jira.atlassian.com/browse/JRASERVER-23287
 // Need to find a way around this 😓
